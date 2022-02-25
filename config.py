@@ -482,8 +482,10 @@ class IniProxy():
         self.proxytype = proxytype
 
     def proxies(self):
-        ''' 获得代理参数，默认http代理
-        '''
+        """
+        获得代理参数，默认http代理
+        """
+
         if self.address:
             if self.proxytype in self.SUPPORT_PROXY_TYPE:
                 proxies = {"http": self.proxytype + "://" + self.address,

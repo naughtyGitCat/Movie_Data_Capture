@@ -286,7 +286,9 @@ def movie_lists(source_folder, regexstr: str) -> typing.List[str]:
     debug = conf.debug()
     nfo_skip_days = conf.nfo_skip_days()
     soft_link = conf.soft_link()
-    file_type = conf.media_type().lower().split(",")
+    # 媒体文件类型
+    file_type: typing.List[str] = conf.media_type().lower().split(",")
+    # 预告片
     trailerRE = re.compile(r'-trailer\.', re.IGNORECASE)
     cliRE = None
     if isinstance(regexstr, str) and len(regexstr):
@@ -296,7 +298,11 @@ def movie_lists(source_folder, regexstr: str) -> typing.List[str]:
             pass
     failed_list_txt_path = Path(conf.failed_folder()).resolve() / 'failed_list.txt'
     failed_set = set()
+
+    # 如果是更新模式或启用软链接而且未忽略失败列表
     if (main_mode == 3 or soft_link) and not conf.ignore_failed_list():
+        # 尝试对失败列表中项进行去重, 回写到元文件中
+        # 不改变条目的先后顺序, 重复项只保留最后出现的
         try:
             flist = failed_list_txt_path.read_text(encoding='utf-8').splitlines()
             failed_set = set(flist)
@@ -316,8 +322,10 @@ def movie_lists(source_folder, regexstr: str) -> typing.List[str]:
     skip_failed_cnt, skip_nfo_days_cnt = 0, 0
     escape_folder_set = set(re.split("[,，]", conf.escape_folder()))
     for full_name in source.glob(r'**/*'):
+        # 如果不是更新模式 且遍历到的文件在豁免目录中
         if main_mode != 3 and set(full_name.parent.parts) & escape_folder_set:
             continue
+        # 如果不是指定的媒体文件类型，跳过
         if not full_name.suffix.lower() in file_type:
             continue
         absf = str(full_name)
@@ -475,8 +483,6 @@ def main():
 
     # Parse command line args
     single_file_path, custom_number, logdir, regexstr, zero_op = argparse_function(version)
-
-
 
     main_mode = conf.main_mode()
     folder_path = ""
