@@ -1,149 +1,85 @@
+# build-in lib
 import json
-import re
-from multiprocessing.pool import ThreadPool
-
-import ADC_function
-import config
-from ADC_function import translate
-from lxml import etree
+import secrets
+import typing
 from pathlib import Path
 
-# =========website========
-from . import airav
-from . import avsox
-from . import fanza
-from . import fc2
-from . import jav321
-from . import javbus
-from . import javdb
-from . import mgstage
-from . import xcity
-# from . import javlib
-from . import dlsite
-from . import carib
-from . import fc2club
-from . import mv91
-from . import madou
+# third party lib
+import opencc
+from lxml import etree
+# project wide definitions
+import config
+from ADC_function import (translate,
+                          load_cookies,
+                          file_modification_days,
+                          delete_all_elements_in_str,
+                          delete_all_elements_in_list
+                          )
+from scrapinglib.api import search
 
 
-def get_data_state(data: dict) -> bool:  # 元数据获取失败检测
-    if "title" not in data or "number" not in data:
-        return False
-
-    if data["title"] is None or data["title"] == "" or data["title"] == "null":
-        return False
-
-    if data["number"] is None or data["number"] == "" or data["number"] == "null":
-        return False
-
-    return True
-
-
-def get_data_from_json(file_number, oCC):
+def get_data_from_json(
+        file_number: str,
+        open_cc: opencc.OpenCC,
+        specified_source: str, specified_url: str) -> typing.Optional[dict]:
     """
-    iterate through all services and fetch the data 从JSON返回元数据
+    iterate through all services and fetch the data 从网站上查询片名解析JSON返回元数据
+    :param file_number: 影片名称
+    :param open_cc: 简繁转换器
+    :param specified_source: 指定的媒体数据源
+    :param specified_url: 指定的数据查询地址, 目前未使用
+    :return 给定影片名称的具体信息
     """
 
     actor_mapping_data = etree.parse(str(Path.home() / '.local' / 'share' / 'mdc' / 'mapping_actor.xml'))
     info_mapping_data = etree.parse(str(Path.home() / '.local' / 'share' / 'mdc' / 'mapping_info.xml'))
 
-    func_mapping = {
-        "airav": airav.main,
-        "avsox": avsox.main,
-        "fc2": fc2.main,
-        "fanza": fanza.main,
-        "javdb": javdb.main,
-        "javbus": javbus.main,
-        "mgstage": mgstage.main,
-        "jav321": jav321.main,
-        "xcity": xcity.main,
-        # "javlib": javlib.main,
-        "dlsite": dlsite.main,
-        "carib": carib.main,
-        "fc2club": fc2club.main,
-        "mv91": mv91.main,
-        "madou": madou.main
-    }
-
     conf = config.getInstance()
     # default fetch order list, from the beginning to the end
-    sources = conf.sources().split(',')
-    if len(sources) <= len(func_mapping):
-        # if the input file name matches certain rules,
-        # move some web service to the beginning of the list
-        lo_file_number = file_number.lower()
-        if "carib" in sources and (re.match(r"^\d{6}-\d{3}", file_number)
-        ):
-            sources.insert(0, sources.pop(sources.index("carib")))
-        elif re.match(r"^\d{5,}", file_number) or "heyzo" in lo_file_number:
-            if "javdb" in sources:
-                sources.insert(0, sources.pop(sources.index("javdb")))
-            if "avsox" in sources:
-                sources.insert(0, sources.pop(sources.index("avsox")))
-        elif "mgstage" in sources and (re.match(r"\d+\D+", file_number) or
-                                       "siro" in lo_file_number
-        ):
-            sources.insert(0, sources.pop(sources.index("mgstage")))
-        elif "fc2" in lo_file_number:
-            if "javdb" in sources:
-                sources.insert(0, sources.pop(sources.index("javdb")))
-            if "fc2" in sources:
-                sources.insert(0, sources.pop(sources.index("fc2")))
-            if "fc2club" in sources:
-                sources.insert(0, sources.pop(sources.index("fc2club")))
-        elif "dlsite" in sources and (
-                "rj" in lo_file_number or "vj" in lo_file_number
-        ):
-            sources.insert(0, sources.pop(sources.index("dlsite")))
-        elif re.match(r"^[a-z0-9]{3,}$", lo_file_number):
-            if "javdb" in sources:
-                sources.insert(0, sources.pop(sources.index("javdb")))
-            if "xcity" in sources:
-                sources.insert(0, sources.pop(sources.index("xcity")))
+    sources = conf.sources()
 
-    # check sources in func_mapping
-    todel = []
-    for s in sources:
-        if not s in func_mapping:
-            print('[!] Source Not Exist : ' + s)
-            todel.append(s)
-    for d in todel:
-        print('[!] Remove Source : ' + s)
-        sources.remove(d)
+    # TODO 准备参数
+    # - 清理 ADC_function, webcrawler
+    proxies: dict = None
+    config_proxy = conf.proxy()
+    if config_proxy.enable:
+        proxies = config_proxy.proxies()
 
-    json_data = {}
-
-    if conf.multi_threading():
-        pool = ThreadPool(processes=len(conf.sources().split(',')))
-
-        # Set the priority of multi-thread crawling and join the multi-thread queue
-        for source in sources:
-            pool.apply_async(func_mapping[source], (file_number,))
-
-        # Get multi-threaded crawling response
-        for source in sources:
-            if conf.debug() == True:
-                print('[+]select', source)
-            json_data = json.loads(pool.apply_async(func_mapping[source], (file_number,)).get())
-            # if any service return a valid return, break
-            if get_data_state(json_data):
-                print(f"[+]Find movie [{file_number}] metadata on website '{source}'")
+    # javdb website logic
+    # javdb have suffix
+    javdb_sites = conf.javdb_sites().split(',')
+    for i in javdb_sites:
+        javdb_sites[javdb_sites.index(i)] = "javdb" + i
+    javdb_sites.append("javdb")
+    # 不加载过期的cookie，javdb登录界面显示为7天免登录，故假定cookie有效期为7天
+    has_valid_cookie = False
+    for cj in javdb_sites:
+        javdb_site = cj
+        cookie_json = javdb_site + '.json'
+        cookies_dict, cookies_filepath = load_cookies(cookie_json)
+        if isinstance(cookies_dict, dict) and isinstance(cookies_filepath, str):
+            cdays = file_modification_days(cookies_filepath)
+            if cdays < 7:
+                javdb_cookies = cookies_dict
+                has_valid_cookie = True
                 break
-        pool.close()
-        pool.terminate()
-    else:
-        for source in sources:
-            try:
-                if conf.debug() == True:
-                    print('[+]select', source)
-                json_data = json.loads(func_mapping[source](file_number))
-                # if any service return a valid return, break
-                if get_data_state(json_data):
-                    print(f"[+]Find movie [{file_number}] metadata on website '{source}'")
-                    break
-            except:
-                break
+            elif cdays != 9999:
+                print(
+                    f'[!]Cookies file {cookies_filepath} was updated {cdays} days ago, it will not be used for HTTP requests.')
+    if not has_valid_cookie:
+        # get real random site from javdb_sites, because random is not really random when the seed value is known
+        javdb_site = secrets.choice(javdb_sites)
+        javdb_cookies = None
 
+    ca_cert = None
+    if conf.cacert_file():
+        ca_cert = conf.cacert_file()
+
+    json_data = search(file_number, sources, proxies=proxies, verify=ca_cert,
+                        dbsite=javdb_site, dbcookies=javdb_cookies,
+                        morestoryline=conf.is_storyline(),
+                        specifiedSource=specified_source, specifiedUrl=specified_url,
+                        debug = conf.debug())
     # Return if data not found in all sources
     if not json_data:
         print('[-]Movie Number not found!')
@@ -154,8 +90,12 @@ def get_data_from_json(file_number, oCC):
     # 然而也可以跟进关注其它命名规则例如airav.wiki Domain Creation Date: 2019-08-28T07:18:42.0Z
     # 如果将来javdb.com命名规则下不同Studio出现同名碰撞导致无法区分，可考虑更换规则，更新相应的number分析和抓取代码。
     if str(json_data.get('number')).upper() != file_number.upper():
-        print('[-]Movie number has changed! [{}]->[{}]'.format(file_number, str(json_data.get('number'))))
-        return None
+        try:
+            if json_data.get('allow_number_change'):
+                pass
+        except:
+            print('[-]Movie number has changed! [{}]->[{}]'.format(file_number, str(json_data.get('number'))))
+            return None
 
     # ================================================网站规则添加结束================================================
 
@@ -242,8 +182,8 @@ def get_data_from_json(file_number, oCC):
             if json_data[translate_value] == "":
                 continue
             if translate_value == "title":
-                title_dict = json.load(
-                    open(str(Path.home() / '.local' / 'share' / 'mdc' / 'c_number.json'), 'r', encoding="utf-8"))
+                title_dict = json.loads(
+                    (Path.home() / '.local' / 'share' / 'mdc' / 'c_number.json').read_text(encoding="utf-8"))
                 try:
                     json_data[translate_value] = title_dict[number]
                     continue
@@ -261,21 +201,24 @@ def get_data_from_json(file_number, oCC):
             if len(t):
                 json_data[translate_value] = special_characters_replacement(t)
 
-    if oCC:
+    if open_cc:
         cc_vars = conf.cc_convert_vars().split(",")
         ccm = conf.cc_convert_mode()
-        def convert_list(mapping_data,language,vars):
+
+        def convert_list(mapping_data, language, vars):
             total = []
             for i in vars:
-                if len(mapping_data.xpath('a[contains(@keyword, $name)]/@' + language, name=i)) != 0:
-                    i = mapping_data.xpath('a[contains(@keyword, $name)]/@' + language, name=i)[0]
+                if len(mapping_data.xpath('a[contains(@keyword, $name)]/@' + language, name=f",{i},")) != 0:
+                    i = mapping_data.xpath('a[contains(@keyword, $name)]/@' + language, name=f",{i},")[0]
                 total.append(i)
             return total
-        def convert(mapping_data,language,vars):
+
+        def convert(mapping_data, language, vars):
             if len(mapping_data.xpath('a[contains(@keyword, $name)]/@' + language, name=vars)) != 0:
                 return mapping_data.xpath('a[contains(@keyword, $name)]/@' + language, name=vars)[0]
             else:
-                return vars
+                raise IndexError('keyword not found')
+
         for cc in cc_vars:
             if json_data[cc] == "" or len(json_data[cc]) == 0:
                 continue
@@ -291,38 +234,38 @@ def get_data_from_json(file_number, oCC):
                         json_data['actor_list'] = convert_list(actor_mapping_data, "jp", json_data['actor_list'])
                         json_data['actor'] = convert(actor_mapping_data, "jp", json_data['actor'])
                 except:
-                    json_data['actor_list'] = [oCC.convert(aa) for aa in json_data['actor_list']]
-                    json_data['actor'] = oCC.convert(json_data['actor'])
+                    json_data['actor_list'] = [open_cc.convert(aa) for aa in json_data['actor_list']]
+                    json_data['actor'] = open_cc.convert(json_data['actor'])
             elif cc == "tag":
                 try:
                     if ccm == 1:
                         json_data[cc] = convert_list(info_mapping_data, "zh_cn", json_data[cc])
-                        json_data[cc] = ADC_function.delete_all_elements_in_list("删除", json_data[cc])
+                        json_data[cc] = delete_all_elements_in_list("删除", json_data[cc])
                     elif ccm == 2:
                         json_data[cc] = convert_list(info_mapping_data, "zh_tw", json_data[cc])
-                        json_data[cc] = ADC_function.delete_all_elements_in_list("删除", json_data[cc])
+                        json_data[cc] = delete_all_elements_in_list("删除", json_data[cc])
                     elif ccm == 3:
                         json_data[cc] = convert_list(info_mapping_data, "jp", json_data[cc])
-                        json_data[cc] = ADC_function.delete_list_all_elements("删除", json_data[cc])
+                        json_data[cc] = delete_all_elements_in_list("删除", json_data[cc])
                 except:
-                    json_data[cc] = [oCC.convert(t) for t in json_data[cc]]
+                    json_data[cc] = [open_cc.convert(t) for t in json_data[cc]]
             else:
                 try:
                     if ccm == 1:
                         json_data[cc] = convert(info_mapping_data, "zh_cn", json_data[cc])
-                        json_data[cc] = ADC_function.delete_list_all_elements("删除", json_data[cc])
+                        json_data[cc] = delete_all_elements_in_str("删除", json_data[cc])
                     elif ccm == 2:
                         json_data[cc] = convert(info_mapping_data, "zh_tw", json_data[cc])
-                        json_data[cc] = ADC_function.delete_list_all_elements("删除", json_data[cc])
+                        json_data[cc] = delete_all_elements_in_str("删除", json_data[cc])
                     elif ccm == 3:
                         json_data[cc] = convert(info_mapping_data, "jp", json_data[cc])
-                        json_data[cc] = ADC_function.delete_list_all_elements("删除", json_data[cc])
+                        json_data[cc] = delete_all_elements_in_str("删除", json_data[cc])
                 except IndexError:
-                    json_data[cc] = oCC.convert(json_data[cc])
+                    json_data[cc] = open_cc.convert(json_data[cc])
                 except:
                     pass
 
-    naming_rule=""
+    naming_rule = ""
     for i in conf.naming_rule().split("+"):
         if i not in json_data:
             naming_rule += i.strip("'").strip('"')
@@ -337,17 +280,17 @@ def get_data_from_json(file_number, oCC):
 def special_characters_replacement(text) -> str:
     if not isinstance(text, str):
         return text
-    return (text.replace('\\', '∖').     # U+2216 SET MINUS @ Basic Multilingual Plane
-                replace('/', '∕').       # U+2215 DIVISION SLASH @ Basic Multilingual Plane
-                replace(':', '꞉').       # U+A789 MODIFIER LETTER COLON @ Latin Extended-D
-                replace('*', '∗').       # U+2217 ASTERISK OPERATOR @ Basic Multilingual Plane
-                replace('?', '？').      # U+FF1F FULLWIDTH QUESTION MARK @ Basic Multilingual Plane
-                replace('"', '＂').      # U+FF02 FULLWIDTH QUOTATION MARK @ Basic Multilingual Plane
-                replace('<', 'ᐸ').       # U+1438 CANADIAN SYLLABICS PA @ Basic Multilingual Plane
-                replace('>', 'ᐳ').       # U+1433 CANADIAN SYLLABICS PO @ Basic Multilingual Plane
-                replace('|', 'ǀ').       # U+01C0 LATIN LETTER DENTAL CLICK @ Basic Multilingual Plane
-                replace('&lsquo;', '‘'). # U+02018 LEFT SINGLE QUOTATION MARK
-                replace('&rsquo;', '’'). # U+02019 RIGHT SINGLE QUOTATION MARK
-                replace('&hellip;','…').
-                replace('&amp;', '＆')
+    return (text.replace('\\', '∖').  # U+2216 SET MINUS @ Basic Multilingual Plane
+            replace('/', '∕').  # U+2215 DIVISION SLASH @ Basic Multilingual Plane
+            replace(':', '꞉').  # U+A789 MODIFIER LETTER COLON @ Latin Extended-D
+            replace('*', '∗').  # U+2217 ASTERISK OPERATOR @ Basic Multilingual Plane
+            replace('?', '？').  # U+FF1F FULLWIDTH QUESTION MARK @ Basic Multilingual Plane
+            replace('"', '＂').  # U+FF02 FULLWIDTH QUOTATION MARK @ Basic Multilingual Plane
+            replace('<', 'ᐸ').  # U+1438 CANADIAN SYLLABICS PA @ Basic Multilingual Plane
+            replace('>', 'ᐳ').  # U+1433 CANADIAN SYLLABICS PO @ Basic Multilingual Plane
+            replace('|', 'ǀ').  # U+01C0 LATIN LETTER DENTAL CLICK @ Basic Multilingual Plane
+            replace('&lsquo;', '‘').  # U+02018 LEFT SINGLE QUOTATION MARK
+            replace('&rsquo;', '’').  # U+02019 RIGHT SINGLE QUOTATION MARK
+            replace('&hellip;', '…').
+            replace('&amp;', '＆')
             )
