@@ -2,26 +2,9 @@
 
 import re
 import json
-
-from .airav import Airav
-from .carib import Carib
-from .dlsite import Dlsite
-from .fanza import Fanza
-from .gcolle import Gcolle
-from .getchu import Getchu
-from .jav321 import Jav321
-from .javdb import Javdb
-from .mv91 import Mv91
-from .fc2 import Fc2
-from .madou import Madou
-from .mgstage import Mgstage
-from .javbus import Javbus
-from .xcity import Xcity
-from .avsox import Avsox
-from .javlibrary import Javlibrary
-
-from .tmdb import Tmdb
-from .imdb import Imdb
+from .parser import Parser
+import config
+import importlib
 
 
 def search(number, sources: str = None, **kwargs):
@@ -50,33 +33,11 @@ class Scraping:
     """
     """
     adult_full_sources = ['javlibrary', 'javdb', 'javbus', 'airav', 'fanza', 'xcity', 'jav321',
-                          'mgstage', 'fc2', 'avsox', 'dlsite', 'carib', 'madou', 'mv91',
-                          'getchu', 'gcolle'
+                          'mgstage', 'fc2', 'avsox', 'dlsite', 'carib', 'madou',
+                          'getchu', 'gcolle', 'javday', 'pissplay', 'javmenu'
                           ]
-    adult_func_mapping = {
-        'avsox': Avsox().scrape,
-        'javbus': Javbus().scrape,
-        'xcity': Xcity().scrape,
-        'mgstage': Mgstage().scrape,
-        'madou': Madou().scrape,
-        'fc2': Fc2().scrape,
-        'dlsite': Dlsite().scrape,
-        'jav321': Jav321().scrape,
-        'fanza': Fanza().scrape,
-        'airav': Airav().scrape,
-        'carib': Carib().scrape,
-        'mv91': Mv91().scrape,
-        'gcolle': Gcolle().scrape,
-        'javdb': Javdb().scrape,
-        'getchu': Getchu().scrape,
-        'javlibrary': Javlibrary().scrape,
-    }
 
     general_full_sources = ['tmdb', 'imdb']
-    general_func_mapping = {
-        'tmdb': Tmdb().scrape,
-        'imdb': Imdb().scrape,
-    }
 
     debug = False
 
@@ -121,31 +82,43 @@ class Scraping:
                 if self.debug:
                     print('[+]select', source)
                 try:
-                    data = self.general_func_mapping[source](name, self)
+                    module = importlib.import_module('.' + source, 'scrapinglib')
+                    parser_type = getattr(module, source.capitalize())
+                    parser: Parser = parser_type()
+                    data = parser.scrape(name, self)
                     if data == 404:
                         continue
                     json_data = json.loads(data)
                 except Exception as e:
-                    # print('[!] 出错啦')
-                    # print(e)
-                    pass
+                    if config.getInstance().debug():
+                        print(e)
                 # if any service return a valid return, break
                 if self.get_data_state(json_data):
-                    print(f"[+]Find movie [{name}] metadata on website '{source}'")
+                    if self.debug:
+                        print(f"[+]Find movie [{name}] metadata on website '{source}'")
                     break
             except:
                 continue
 
         # Return if data not found in all sources
-        if not json_data:
-            print(f'[-]Movie Number [{name}] not found!')
+        if not json_data or json_data['title'] == "":
             return None
+
+        # If actor is anonymous, Fill in Anonymous
+        if len(json_data['actor']) == 0:
+            if config.getInstance().anonymous_fill() == True:
+                if "zh_" in config.getInstance().get_target_language():
+                    json_data['actor'] = "佚名"
+                else:
+                    json_data['actor'] = "Anonymous"
 
         return json_data
 
     def searchAdult(self, number, sources):
         if self.specifiedSource:
             sources = [self.specifiedSource]
+        elif type(sources) is list:
+            pass
         else:
             sources = self.checkAdultSources(sources, number)
         json_data = {}
@@ -154,26 +127,57 @@ class Scraping:
                 if self.debug:
                     print('[+]select', source)
                 try:
-                    data = self.adult_func_mapping[source](number, self)
+                    module = importlib.import_module('.' + source, 'scrapinglib')
+                    parser_type = getattr(module, source.capitalize())
+                    parser: Parser = parser_type()
+                    data = parser.scrape(number, self)
                     if data == 404:
                         continue
                     json_data = json.loads(data)
                 except Exception as e:
-                    # print('[!] 出错啦')
-                    # print(e)
-                    pass
+                    if config.getInstance().debug():
+                        print(e)
                     # json_data = self.func_mapping[source](number, self)
                 # if any service return a valid return, break
                 if self.get_data_state(json_data):
-                    print(f"[+]Find movie [{number}] metadata on website '{source}'")
+                    if self.debug:
+                        print(f"[+]Find movie [{number}] metadata on website '{source}'")
                     break
             except:
                 continue
 
+        # javdb的封面有水印，如果可以用其他源的封面来替换javdb的封面
+        if 'source' in json_data and json_data['source'] == 'javdb':
+            # search other sources
+            other_sources = sources[sources.index('javdb') + 1:]
+            while other_sources:
+                # If cover not found in other source, then skip using other sources using javdb cover instead
+                try:
+                    other_json_data = self.searchAdult(number, other_sources)
+                    if other_json_data is not None and 'cover' in other_json_data and other_json_data['cover'] != '':
+                        json_data['cover'] = other_json_data['cover']
+                        if self.debug:
+                            print(f"[+]Find movie [{number}] cover on website '{other_json_data['cover']}'")
+                        break
+                    # 当不知道source为何时，只能停止搜索
+                    if 'source' not in other_json_data:
+                        break
+                    # check other sources
+                    other_sources = sources[sources.index(other_json_data['source']) + 1:]
+                except:
+                    pass
+
         # Return if data not found in all sources
-        if not json_data:
-            print(f'[-]Movie Number [{number}] not found!')
+        if not json_data or json_data['title'] == "":
             return None
+
+        # If actor is anonymous, Fill in Anonymous
+        if len(json_data['actor']) == 0:
+            if config.getInstance().anonymous_fill() == True:
+                if "zh_" in config.getInstance().get_target_language():
+                    json_data['actor'] = "佚名"
+                else:
+                    json_data['actor'] = "Anonymous"
 
         return json_data
 
@@ -186,7 +190,7 @@ class Scraping:
         # check sources in func_mapping
         todel = []
         for s in sources:
-            if not s in self.general_func_mapping:
+            if not s in self.general_full_sources:
                 print('[!] Source Not Exist : ' + s)
                 todel.append(s)
         for d in todel:
@@ -205,7 +209,7 @@ class Scraping:
                 sources.insert(0, sources.pop(sources.index(source)))
             return sources
 
-        if len(sources) <= len(self.adult_func_mapping):
+        if len(sources) <= len(self.adult_full_sources):
             # if the input file name matches certain rules,
             # move some web service to the beginning of the list
             lo_file_number = file_number.lower()
@@ -241,11 +245,12 @@ class Scraping:
         # check sources in func_mapping
         todel = []
         for s in sources:
-            if not s in self.adult_func_mapping:
+            if not s in self.adult_full_sources and config.getInstance().debug():
                 print('[!] Source Not Exist : ' + s)
                 todel.append(s)
         for d in todel:
-            print('[!] Remove Source : ' + s)
+            if config.getInstance().debug():
+                print('[!] Remove Source : ' + s)
             sources.remove(d)
         return sources
 
@@ -255,5 +260,9 @@ class Scraping:
         if data["title"] is None or data["title"] == "" or data["title"] == "null":
             return False
         if data["number"] is None or data["number"] == "" or data["number"] == "null":
+            return False
+        if (data["cover"] is None or data["cover"] == "" or data["cover"] == "null") \
+                and (data["cover_small"] is None or data["cover_small"] == "" or
+                     data["cover_small"] == "null"):
             return False
         return True
