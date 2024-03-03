@@ -9,6 +9,7 @@ import opencc
 from lxml import etree
 # project wide definitions
 import config
+from utils.logger import get_logger
 from ADC_function import (translate,
                           load_cookies,
                           file_modification_days,
@@ -16,6 +17,8 @@ from ADC_function import (translate,
                           delete_all_elements_in_list
                           )
 from scrapinglib.api import search
+
+logger = get_logger("scraper")
 
 
 def get_data_from_json(
@@ -30,6 +33,8 @@ def get_data_from_json(
     :param specified_url: 指定的数据查询地址, 目前未使用
     :return 给定影片名称的具体信息
     """
+    logger.debug(f"#get_data_from_json#, "
+                 f"file_number: {file_number}, specified_source: {specified_source}, specified_url:{specified_url}")
     try:
         actor_mapping_data = etree.parse(str(Path.home() / '.local' / 'share' / 'mdc' / 'mapping_actor.xml'))
         info_mapping_data = etree.parse(str(Path.home() / '.local' / 'share' / 'mdc' / 'mapping_info.xml'))
@@ -78,6 +83,7 @@ def get_data_from_json(
     if conf.cacert_file():
         ca_cert = conf.cacert_file()
 
+    logger.debug("now search json data")
     json_data = search(file_number, sources, proxies=proxies, verify=ca_cert,
                         dbsite=javdb_site, dbcookies=javdb_cookies,
                         morestoryline=conf.is_storyline(),

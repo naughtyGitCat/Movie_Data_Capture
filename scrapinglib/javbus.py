@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-
+import logging
 import re
 import os
 import secrets
@@ -8,8 +8,8 @@ from lxml import etree
 from urllib.parse import urljoin
 from .parser import Parser
 
+
 class Javbus(Parser):
-    
     source = 'javbus'
 
     expr_number = '/html/head/meta[@name="keywords"]/@content'
@@ -30,6 +30,13 @@ class Javbus(Parser):
     expr_tags = '/html/head/meta[@name="keywords"]/@content'
     expr_uncensored = '//*[@id="navbar"]/ul[1]/li[@class="active"]/a[contains(@href,"uncensored")]'
 
+    def extraInit(self):
+        if self.extraheader is None:
+            self.extraheader = dict()
+        # <title>Age Verification JavBus - JavBus</title>
+        self.extraheader["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0"
+        self.extraheader["Accept-Language"] = "zh-CN,zh;q=0.9"
+
     def search(self, number):
         self.number = number
         try:
@@ -47,13 +54,17 @@ class Javbus(Parser):
                     'cdnbus.fun',
                     'dmmbus.fun', 'dmmsee.fun',
                     'seedmm.fun',
-                    ]) + "/"
+                ]) + "/"
                 self.detailurl = mirror_url + number
                 self.htmlcode = self.getHtml(self.detailurl)
+            # self.logger.debug(f"[javbus]url: {self.detailurl}, htmlcode: {self.htmlcode}")
             if self.htmlcode == 404:
                 return 404
-            htmltree = etree.fromstring(self.htmlcode,etree.HTMLParser())
+            self.logger.debug(f"[javbus]now handle etree.fromstring")
+            htmltree = etree.fromstring(self.htmlcode, etree.HTMLParser())
+            self.logger.debug(f"[javbus]now handle dictformat")
             result = self.dictformat(htmltree)
+            self.logger.debug(f"[javbus]now result {result}")
             return result
         except:
             self.searchUncensored(number)
@@ -68,7 +79,7 @@ class Javbus(Parser):
         if self.specifiedUrl:
             self.detailurl = self.specifiedUrl
         else:
-            self.detailurl = 'https://www.javbus.red/' + w_number
+            self.detailurl = 'https://www.javbus.com/' + w_number
         self.htmlcode = self.getHtml(self.detailurl)
         if self.htmlcode == 404:
             return 404
@@ -91,18 +102,18 @@ class Javbus(Parser):
             return self.getTreeElement(htmltree, self.expr_studio)
 
     def getCover(self, htmltree):
-        return urljoin("https://www.javbus.com", super().getCover(htmltree)) 
+        return urljoin("https://www.javbus.com", super().getCover(htmltree))
 
     def getRuntime(self, htmltree):
         return super().getRuntime(htmltree).strip(" ['']分鐘")
 
     def getActors(self, htmltree):
         actors = super().getActors(htmltree)
-        b=[]
+        b = []
         for i in actors:
             b.append(i.attrib['title'])
         return b
-    
+
     def getActorPhoto(self, htmltree):
         actors = self.getTreeAll(htmltree, self.expr_actorphoto)
         d = {}
@@ -133,8 +144,8 @@ class Javbus(Parser):
     def getOutline(self, htmltree):
         if self.morestoryline:
             if any(caller for caller in inspect.stack() if os.path.basename(caller.filename) == 'airav.py'):
-                return ''   # 从airav.py过来的调用不计算outline直接返回，避免重复抓取数据拖慢处理速度
+                return ''  # 从airav.py过来的调用不计算outline直接返回，避免重复抓取数据拖慢处理速度
             from .storyline import getStoryline
-            return getStoryline(self.number , uncensored = self.uncensored,
+            return getStoryline(self.number, uncensored=self.uncensored,
                                 proxies=self.proxies, verify=self.verify)
         return ''

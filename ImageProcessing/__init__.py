@@ -1,20 +1,27 @@
 import sys
+
+
 sys.path.append('../')
 
-import logging
 import os
 import config
 import importlib
+import traceback
 from pathlib import Path
 from PIL import Image
 import shutil
+
+from utils.smb import smb_to_local, local_to_smb
+from utils.logger import get_logger
 from ADC_function import file_not_exist_or_empty
+
+logger = get_logger("image")
 
 
 def face_crop_width(filename, width, height):
     aspect_ratio = config.getInstance().face_aspect_ratio()
     # 新宽度是高度的2/3
-    cropWidthHalf = int(height/3)
+    cropWidthHalf = int(height / 3)
     try:
         locations_model = config.getInstance().face_locations_model().lower().split(',')
         locations_model = filter(lambda x: x, locations_model)
@@ -22,8 +29,8 @@ def face_crop_width(filename, width, height):
             center, top = face_center(filename, model)
             # 如果找到就跳出循环
             if center:
-                cropLeft = center-cropWidthHalf
-                cropRight = center+cropWidthHalf
+                cropLeft = center - cropWidthHalf
+                cropRight = center + cropWidthHalf
                 # 越界处理
                 if cropLeft < 0:
                     cropLeft = 0
@@ -35,11 +42,11 @@ def face_crop_width(filename, width, height):
     except:
         print('[-]Not found face!   ' + filename)
     # 默认靠右切
-    return (width-cropWidthHalf * aspect_ratio, 0, width, height)
+    return (width - cropWidthHalf * aspect_ratio, 0, width, height)
 
 
 def face_crop_height(filename, width, height):
-    cropHeight = int(width*3/2)
+    cropHeight = int(width * 3 / 2)
     try:
         locations_model = config.getInstance().face_locations_model().lower().split(',')
         locations_model = filter(lambda x: x, locations_model)
@@ -62,8 +69,10 @@ def face_crop_height(filename, width, height):
 
 def cutImage(imagecut, path, thumb_path, poster_path, skip_facerec=False):
     conf = config.getInstance()
+    logger.debug(f"#cutImage# path  is {path}")
     fullpath_fanart = os.path.join(path, thumb_path)
     fullpath_poster = os.path.join(path, poster_path)
+    logger.debug(f"#cutImage# fullpath_fanart  is {fullpath_fanart}")
     aspect_ratio = conf.face_aspect_ratio()
     if conf.face_aways_imagecut():
         imagecut = 1
@@ -72,9 +81,13 @@ def cutImage(imagecut, path, thumb_path, poster_path, skip_facerec=False):
     # imagecut为4时同时也是有码影片 也用人脸识别裁剪封面
     if imagecut == 1 or imagecut == 4:  # 剪裁大封面
         try:
-            img = Image.open(fullpath_fanart)
+            if fullpath_fanart.startswith("\\"):
+                local = smb_to_local(fullpath_fanart)
+                img = Image.open(local)
+            else:
+                img = Image.open(fullpath_fanart)
             width, height = img.size
-            if width/height > 2/3:  # 如果宽度大于2
+            if width / height > 2 / 3:  # 如果宽度大于2
                 if imagecut == 4:
                     # 以人像为中心切取
                     img2 = img.crop(face_crop_width(fullpath_fanart, width, height))
@@ -84,16 +97,21 @@ def cutImage(imagecut, path, thumb_path, poster_path, skip_facerec=False):
                 else:
                     # 以人像为中心切取
                     img2 = img.crop(face_crop_width(fullpath_fanart, width, height))
-            elif width/height < 2/3:  # 如果高度大于3
+            elif width / height < 2 / 3:  # 如果高度大于3
                 # 从底部向上切割
                 img2 = img.crop(face_crop_height(fullpath_fanart, width, height))
             else:  # 如果等于2/3
                 img2 = img
-            img2.save(fullpath_poster)
+            if fullpath_fanart.startswith("\\"):
+                img2.save(f"./tmp/{poster_path}")
+                local_to_smb(f"./tmp/{poster_path}", fullpath_poster)
+            else:
+                img2.save(fullpath_poster)
             print(f"[+]Image Cutted!     {Path(fullpath_poster).name}")
         except Exception as e:
-            print(e)
-            print('[-]Cover cut failed!')
+            print(traceback.format_exc())
+            print(f'[-]Cover cut failed! {e}')
+            exit(1)
     elif imagecut == 0:  # 复制封面
         shutil.copyfile(fullpath_fanart, fullpath_poster)
         print(f"[+]Image Copyed!     {Path(fullpath_poster).name}")
@@ -109,6 +127,7 @@ def face_center(filename, model):
             logging.error(e)
         return (0, 0)
 
+
 if __name__ == '__main__':
-    cutImage(1,'z:/t/','p.jpg','o.jpg')
-    #cutImage(1,'H:\\test\\','12.jpg','test.jpg')
+    cutImage(1, 'z:/t/', 'p.jpg', 'o.jpg')
+    # cutImage(1,'H:\\test\\','12.jpg','test.jpg')

@@ -168,14 +168,23 @@ class Config:
         except ValueError:
             self._exit("common:main_mode")
 
+    # def source_folder(self) -> str:
+        # return self.conf.get("common", "source_folder").replace("\\\\", "/").replace("\\", "/")
+
     def source_folder(self) -> str:
-        return self.conf.get("common", "source_folder").replace("\\\\", "/").replace("\\", "/")
+        return self.conf.get("common", "source_folder")
+
+    # def failed_folder(self) -> str:
+        # return self.conf.get("common", "failed_output_folder").replace("\\\\", "/").replace("\\", "/")
 
     def failed_folder(self) -> str:
-        return self.conf.get("common", "failed_output_folder").replace("\\\\", "/").replace("\\", "/")
+        return self.conf.get("common", "failed_output_folder")
+
+    # def success_folder(self) -> str:
+        # return self.conf.get("common", "success_output_folder").replace("\\\\", "/").replace("\\", "/")
 
     def success_folder(self) -> str:
-        return self.conf.get("common", "success_output_folder").replace("\\\\", "/").replace("\\", "/")
+        return self.conf.get("common", "success_output_folder")
 
     def actor_gender(self) -> str:
         return self.conf.get("common", "actor_gender")
@@ -184,7 +193,7 @@ class Config:
         return self.conf.getint("common", "link_mode")
 
     def scan_hardlink(self) -> bool:
-        return self.conf.getboolean("common", "scan_hardlink", fallback=False)#未找到配置选项,默认不刮削
+        return self.conf.getboolean("common", "scan_hardlink", fallback=False)  # 未找到配置选项,默认不刮削
 
     def failed_move(self) -> bool:
         return self.conf.getboolean("common", "failed_move")

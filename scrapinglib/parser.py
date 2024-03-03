@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 
 import json
+import logging
 import re
 from lxml import etree, html
 
 from . import httprequest
 from .utils import getTreeElement, getTreeAll
+from utils.logger import get_logger
+
 
 class Parser:
     """ 基础刮削类
@@ -37,6 +40,8 @@ class Parser:
     expr_userrating = ''
     expr_uservotes = ''
 
+    logger: logging.Logger
+
     def init(self):
         """ 初始化参数
         """
@@ -55,6 +60,7 @@ class Parser:
         self.morestoryline = False
         self.specifiedUrl = None
         self.extraInit()
+        self.logger = get_logger("parser")
 
     def extraInit(self):
         """ 自定义初始化内容
@@ -85,6 +91,7 @@ class Parser:
         else:
             self.detailurl = self.queryNumberUrl(number)
         if not self.detailurl:
+            self.logger.warning("detail url is empty")
             return 404
         htmltree = self.getHtmlTree(self.detailurl)
         result = self.dictformat(htmltree)
@@ -116,19 +123,20 @@ class Parser:
         url = "http://detailurl.ai/" + number
         return url
 
-    def getHtml(self, url, type = None):
+    def getHtml(self, url, type=None):
         """ 访问网页
         """
-        resp = httprequest.get(url, cookies=self.cookies, proxies=self.proxies, extra_headers=self.extraheader, verify=self.verify, return_type=type)
+        resp = httprequest.get(url, cookies=self.cookies, proxies=self.proxies, extra_headers=self.extraheader,
+                               verify=self.verify, return_type=type)
         if '<title>404 Page Not Found' in resp \
-            or '<title>未找到页面' in resp \
-            or '404 Not Found' in resp \
-            or '<title>404' in resp \
-            or '<title>お探しの商品が見つかりません' in resp:
+                or '<title>未找到页面' in resp \
+                or '404 Not Found' in resp \
+                or '<title>404' in resp \
+                or '<title>お探しの商品が見つかりません' in resp:
             return 404
         return resp
 
-    def getHtmlTree(self, url, type = None):
+    def getHtmlTree(self, url, type=None):
         """ 访问网页,返回`etree`
         """
         resp = self.getHtml(url, type)
@@ -166,12 +174,12 @@ class Parser:
             }
             dic = self.extradict(dic)
         except Exception as e:
-            #print(e)
+            # print(e)
             dic = {"title": ""}
         js = json.dumps(dic, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
         return js
 
-    def extradict(self, dic:dict):
+    def extradict(self, dic: dict):
         """ 额外修改dict
         """
         return dic
@@ -185,7 +193,7 @@ class Parser:
         return self.getTreeElement(htmltree, self.expr_title).strip()
 
     def getRelease(self, htmltree):
-        return self.getTreeElement(htmltree, self.expr_release).strip().replace('/','-')
+        return self.getTreeElement(htmltree, self.expr_release).strip().replace('/', '-')
 
     def getYear(self, htmltree):
         """ year基本都是从release中解析的
@@ -217,7 +225,7 @@ class Parser:
                 if tag:
                     tags.append(tag)
         return tags
-        return [ x.strip() for x in alls if x.strip()]
+        return [x.strip() for x in alls if x.strip()]
 
     def getStudio(self, htmltree):
         return self.getTreeElementbyExprs(htmltree, self.expr_studio, self.expr_studio2)
@@ -314,9 +322,9 @@ class Parser:
         try:
             result1 = self.getTreeAll(tree, expr)
             result2 = self.getTreeAll(tree, expr2)
-            clean = [ x.strip() for x in result1 if x.strip() and x.strip() != ',']
-            clean2 = [ x.strip() for x in result2 if x.strip() and x.strip() != ',']
-            result =  list(set(clean + clean2))
+            clean = [x.strip() for x in result1 if x.strip() and x.strip() != ',']
+            clean2 = [x.strip() for x in result2 if x.strip() and x.strip() != ',']
+            result = list(set(clean + clean2))
             return result
         except:
             return []

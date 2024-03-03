@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
-
+import logging
 import re
 import json
 from .parser import Parser
 import config
 import importlib
+
+from utils.logger import get_logger
+
+logger = get_logger("api")
 
 
 def search(number, sources: str = None, **kwargs):
@@ -14,6 +18,7 @@ def search(number, sources: str = None, **kwargs):
     :param sources: sources string with `,` Eg: `avsox,javbus`
     :param type: `adult`, `general`
     """
+
     sc = Scraping()
     return sc.search(number, sources, **kwargs)
 
@@ -50,6 +55,8 @@ class Scraping:
     dbsite = None
     # 使用storyline方法进一步获取故事情节
     morestoryline = False
+
+    logger: logging.Logger = get_logger("scraping")
 
     def search(self, number, sources=None, proxies=None, verify=None, type='adult',
                specifiedSource=None, specifiedUrl=None,
@@ -123,9 +130,8 @@ class Scraping:
             sources = self.checkAdultSources(sources, number)
         json_data = {}
         for source in sources:
+            self.logger.debug(f"now search with {source} for {number}")
             try:
-                if self.debug:
-                    print('[+]select', source)
                 try:
                     module = importlib.import_module('.' + source, 'scrapinglib')
                     parser_type = getattr(module, source.capitalize())
@@ -140,6 +146,7 @@ class Scraping:
                     # json_data = self.func_mapping[source](number, self)
                 # if any service return a valid return, break
                 if self.get_data_state(json_data):
+                    self.logger.debug(f"{number} json data found on {source}, {json_data}")
                     if self.debug:
                         print(f"[+]Find movie [{number}] metadata on website '{source}'")
                     break
@@ -155,6 +162,7 @@ class Scraping:
                 try:
                     other_json_data = self.searchAdult(number, other_sources)
                     if other_json_data is not None and 'cover' in other_json_data and other_json_data['cover'] != '':
+                        logger.debug(f"now set cover with {other_json_data}")
                         json_data['cover'] = other_json_data['cover']
                         if self.debug:
                             print(f"[+]Find movie [{number}] cover on website '{other_json_data['cover']}'")

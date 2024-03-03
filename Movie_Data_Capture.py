@@ -17,10 +17,13 @@ from lxml import etree
 from pathlib import Path
 from opencc import OpenCC
 
+from utils.logger import get_logger
 from scraper import get_data_from_json
 from ADC_function import file_modification_days, get_html, parallel_download_files
 from number_parser import get_number
 from core import core_main, core_main_no_net_op, moveFailedFolder, debug_print
+
+logger = get_logger("main")
 
 
 def check_update(local_version):
@@ -452,9 +455,10 @@ def create_data_and_move(movie_path: str, zero_op: bool, no_net_op: bool, oCC):
     debug = config.getInstance().debug()
     n_number = get_number(debug, os.path.basename(movie_path))
     movie_path = os.path.abspath(movie_path)
+    logger.debug(f"#create_data_and_move#, movie abs path is {movie_path}")
 
     if debug is True:
-        print(f"[!] [{n_number}] As Number Processing for '{movie_path}'")
+        logger.debug(f"[!] [{n_number}] As Number Processing for '{movie_path}'")
         if zero_op:
             return
         if n_number:
@@ -463,9 +467,9 @@ def create_data_and_move(movie_path: str, zero_op: bool, no_net_op: bool, oCC):
             else:
                 core_main(movie_path, n_number, oCC)
         else:
-            print("[-] number empty ERROR")
+            logger.debug("[-] number empty ERROR")
             moveFailedFolder(movie_path)
-        print("[*]======================================================")
+        logger.info("[*]======================================================")
     else:
         try:
             print(f"[!] [{n_number}] As Number Processing for '{movie_path}'")
@@ -642,6 +646,7 @@ def main(args: tuple) -> Path:
             percentage = str(count / int(count_all) * 100)[:4] + '%'
             print('[!] {:>30}{:>21}'.format('- ' + percentage + ' [' + str(count) + '/' + count_all + '] -',
                                             time.strftime("%H:%M:%S")))
+            logger.debug(f"#create_data_and_move# movie path is {movie_path}")
             create_data_and_move(movie_path, zero_op, no_net_op, oCC)
             if count >= stop_count:
                 print("[!]Stop counter triggered!")

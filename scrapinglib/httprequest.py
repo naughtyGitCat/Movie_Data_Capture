@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import time
 
 import mechanicalsoup
 import requests
@@ -6,10 +7,13 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from cloudscraper import create_scraper
 
+from utils.logger import get_logger
 import config
 
 G_USER_AGENT = r'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.133 Safari/537.36'
 G_DEFAULT_TIMEOUT = 10
+
+logger = get_logger("requests")
 
 
 def get(url: str, cookies=None, ua: str = None, extra_headers=None, return_type: str = None, encoding: str = None,
@@ -19,6 +23,7 @@ def get(url: str, cookies=None, ua: str = None, extra_headers=None, return_type:
 
     是否使用代理应由上层处理
     """
+    logger.debug(locals())
     errors = ""
     headers = {"User-Agent": ua or G_USER_AGENT}
     if extra_headers != None:
@@ -27,6 +32,9 @@ def get(url: str, cookies=None, ua: str = None, extra_headers=None, return_type:
         try:
             result = requests.get(url, headers=headers, timeout=timeout, proxies=proxies,
                                   verify=verify, cookies=cookies)
+            logger.debug(f"url: {url}, status code: {result.status_code}")
+            # if url.startswith("https://www.javbus.com"):
+            # logger.debug(f"content: {result.text}")
             if return_type == "object":
                 return result
             elif return_type == "content":
@@ -35,9 +43,9 @@ def get(url: str, cookies=None, ua: str = None, extra_headers=None, return_type:
                 result.encoding = encoding or result.apparent_encoding
                 return result.text
         except Exception as e:
-            if config.getInstance().debug():
-                print(f"[-]Connect: {url} retry {i + 1}/{retry}")
+            logger.debug(f"[-]Connect: {url} retry {i + 1}/{retry}")
             errors = str(e)
+        time.sleep(config.getInstance().sleep())
     if config.getInstance().debug():
         if "getaddrinfo failed" in errors:
             print("[-]Connect Failed! Please Check your proxy config")
@@ -68,16 +76,15 @@ def post(url: str, data: dict=None, files=None, cookies=None, ua: str=None, retu
                 result.encoding = encoding or result.apparent_encoding
                 return result
         except Exception as e:
-            if config.getInstance().debug():
-                print(f"[-]Connect: {url} retry {i + 1}/{retry}")
+            logger.debug(f"[-]Connect: {url} retry {i + 1}/{retry}")
             errors = str(e)
         if config.getInstance().debug():
             if "getaddrinfo failed" in errors:
-                print("[-]Connect Failed! Please Check your proxy config")
-                print("[-]" + errors)
+                logger.warning("[-]Connect Failed! Please Check your proxy config")
+                logger.warning("[-]" + errors)
             else:
-                print("[-]" + errors)
-                print('[-]Connect Failed! Please check your Proxy or Network!')
+                logger.warning("[-]" + errors)
+                logger.warning('[-]Connect Failed! Please check your Proxy or Network!')
         raise Exception('Connect Failed')
 
 

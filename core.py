@@ -8,13 +8,17 @@ from io import BytesIO
 from datetime import datetime
 # from videoprops import get_video_properties
 
+import smbclient
 from ADC_function import *
 from scraper import get_data_from_json
 from number_parser import is_uncensored
 from ImageProcessing import cutImage
 
+from utils.logger import get_logger
 
+logger = get_logger("core")
 # from WebCrawler import get_data_from_json
+
 
 def escape_path(path, escape_literals: str):  # Remove escape literals
     backslash = '\\'
@@ -84,6 +88,7 @@ def create_folder(json_data):  # 创建文件夹
         json_data)
     conf = config.getInstance()
     success_folder = conf.success_folder()
+    logger.debug(f"#create_folder#  success_folder  is {success_folder}")
     actor = json_data.get('actor')
     location_rule = eval(conf.location_rule(), json_data)
     if 'actor' in conf.location_rule() and len(actor) > 100:
@@ -93,15 +98,17 @@ def create_folder(json_data):  # 创建文件夹
     if 'title' in conf.location_rule() and len(title) > maxlen:
         shorttitle = title[0:maxlen]
         location_rule = location_rule.replace(title, shorttitle)
+    logger.debug(f"#create_folder# location_rule  is {location_rule}")
     # 当演员为空时，location_rule被计算为'/number'绝对路径，导致路径连接忽略第一个路径参数，因此添加./使其始终为相对路径
     path = os.path.join(success_folder, f'./{location_rule.strip()}')
+    logger.debug(f"#create_folder# path is {path}")
     if not os.path.exists(path):
-        path = escape_path(path, conf.escape_literals())
+        #   path = escape_path(path, conf.escape_literals())
         try:
             os.makedirs(path)
         except:
             path = success_folder + '/' + location_rule.replace('/[' + number + ')-' + title, "/number")
-            path = escape_path(path, conf.escape_literals())
+            # path = escape_path(path, conf.escape_literals())
             try:
                 os.makedirs(path)
             except:
@@ -115,6 +122,8 @@ def create_folder(json_data):  # 创建文件夹
 
 # path = examle:photo , video.in the Project Folder!
 def download_file_with_filename(url, filename, path, filepath, json_headers=None):
+    logger.debug(f"in download_file_with_filename, url: {url}, "
+                 f"filename: {filename}, path: {path}, filepath: {filepath}, json_headers: {json_headers}")
     conf = config.getInstance()
     configProxy = conf.proxy()
 
@@ -130,8 +139,13 @@ def download_file_with_filename(url, filename, path, filepath, json_headers=None
             if r == '':
                 print('[-]Movie Download Data not found!')
                 return
-            with open(os.path.join(path, filename), "wb") as code:
-                code.write(r)
+            file_full_path = os.path.join(path, filename)
+            if file_full_path.startswith("\\\\"):
+                with smbclient.open_file(file_full_path, 'wb') as f:
+                    f.write(r)
+            else:
+                with open(os.path.join(path, filename), "wb") as code:
+                    code.write(r)
             return
         except requests.exceptions.ProxyError:
             i += 1
@@ -254,20 +268,19 @@ def extrafanart_download_threadpool(url_list, save_dir, number, json_data=None):
         return
     parallel = min(len(dn_list), conf.extrafanart_thread_pool_download())
     if parallel > 100:
-        print('[!]Warrning: Parallel download thread too large may cause website ban IP!')
+        logger.warning('[!]Warrning: Parallel download thread too large may cause website ban IP!')
     result = parallel_download_files(dn_list, parallel, json_data)
     failed = 0
     for i, r in enumerate(result, start=1):
         if not r:
             failed += 1
-            print(f'[-]Extrafanart {i} for [{number}] download failed!')
+            logger.warning(f'[-]Extrafanart {i} for [{number}] download failed!')
     if failed:  # 非致命错误，电影不移入失败文件夹，将来可以用模式3补齐
-        print(
+        logger.warning(
             f"[-]Failed downloaded {failed}/{len(result)} extrafanart images for [{number}] to '{extrafanart_dir}', you may retry run mode 3 later.")
     else:
-        print(f"[+]Successfully downloaded {len(result)} extrafanarts.")
-    if conf.debug():
-        print(f'[!]Extrafanart download ThreadPool mode runtime {time.perf_counter() - tm_start:.3f}s')
+        logger.info(f"[+]Successfully downloaded {len(result)} extrafanarts.")
+    logger.debug(f'[!]Extrafanart download ThreadPool mode runtime {time.perf_counter() - tm_start:.3f}s')
 
 
 def image_ext(url):
@@ -560,7 +573,7 @@ def add_to_pic(pic_path, img_pic, size, count, mode):
     img_subt = Image.open(mark_pic_path)
     scroll_high = int(img_pic.height / size)
     scroll_wide = int(scroll_high * img_subt.width / img_subt.height)
-    img_subt = img_subt.resize((scroll_wide, scroll_high), Image.ANTIALIAS)
+    img_subt = img_subt.resize((scroll_wide, scroll_high), Image.LANCZOS)
     r, g, b, a = img_subt.split()  # 获取颜色通道，保持png的透明性
     # 封面四个角的位置
     pos = [
