@@ -1,5 +1,5 @@
 requests
-dlib-bin
+dlib
 Click
 numpy
 face-recognition-models

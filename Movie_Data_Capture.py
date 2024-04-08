@@ -27,14 +27,14 @@ logger = get_logger("main")
 
 
 def check_update(local_version):
-    htmlcode = get_html("https://api.github.com/repos/yoshiko2/Movie_Data_Capture/releases/latest")
-    data = json.loads(htmlcode)
+    html_code = get_html("https://api.github.com/repos/naughtyGitCat/Movie_Data_Capture/releases/latest")
+    data = json.loads(html_code)
     remote = int(data["tag_name"].replace(".", ""))
     local_version = int(local_version.replace(".", ""))
     if local_version < remote:
         print("[*]" + ("* New update " + str(data["tag_name"]) + " *").center(54))
         print("[*]" + "↓ Download ↓".center(54))
-        print("[*]https://github.com/yoshiko2/Movie_Data_Capture/releases")
+        print("[*]https://github.com/naughtyGitCat/Movie_Data_Capture/releases")
         print("[*]======================================================")
 
 
